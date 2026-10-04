@@ -1,0 +1,76 @@
+# Format checks enforced on CI:
+# 1. Comments must appear above each field.
+# 2. There must be a blank line between each field.
+# 3. Inline comments (after a field on the same line) are not allowed.
+# 4. Indentation level is respected for nested fields.
+
+defaults:
+  - ppo_trainer
+
+  - _self_
+
+# Multi-agent training configuration for MAPPO.
+# num_agents and agents list are required; all other PPO fields are inherited above.
+multi_agent:
+
+  # Number of agents participating in the multi-agent rollout.
+  num_agents: 2
+
+  # Number of discussion rounds per training step.
+  num_rounds: 3
+
+  # Trainer class: "mappo" for IPPO (RayMAPPOTrainer), "risk_averse" for SRPO (RayRiskAverseTrainer).
+  trainer_type: mappo
+
+  # System prompt prepended to every agent turn. Identical for all agents and arms.
+  system_prompt: |
+    You are solving a math word problem with one peer. In each round, you will see the question, your previous response, and your peer's previous response. Reason step by step. Where your peer's reasoning is sound, incorporate it; where it is flawed, identify the flaw and revise. Output the final answer after "####".
+
+  # Slot-structured discussion-prompt template used for round r >= 1.
+  # Placeholders: {r}, {self_prev}, {peer_prev}. Substitution uses str.replace,
+  # so literal '{...}' inside agent responses will not crash.
+  discussion_prompt_template: |
+    Round {r}. Below is the previous round of the discussion.
+    - Your previous response: {self_prev}
+    - Peer's previous response: {peer_prev}
+    Now produce your round-{r} response.
+
+  # SRPO-only: apply risk_coef * KL(pi_adv || pi_hero) regularizer to the
+  # adversary's token-level reward, evaluated on adversary trajectories with
+  # the hero policy's logprobs. Only consulted by RayRiskAverseTrainer.
+  adversary_kl_to_hero: false
+
+  # SRPO-only: fixed scalar multiplier on the adversary->hero KL term in
+  # _apply_kl_penalty. Corresponds to 1/tau in the SRPO paper. Distinct from
+  # algorithm.gamma (which is the discount factor used in back_propogate_reward).
+  risk_coef: 1.0
+
+  # Cross-pair probe: load a frozen partner from `partner_ckpt_dir` and run
+  # rollouts that swap it in for one of the trained agents. The probe is now
+  # OFFLINE — it never runs inside the training loop. Invoke via:
+  #   python -m verl.trainer.main_mappo \
+  #     +multi_agent.cross_pair_probe.run_only=true \
+  #     multi_agent.cross_pair_probe.partner_ckpt_dir=<sibling-arm>/global_step_N \
+  #     multi_agent.cross_pair_probe.out_path=logs/probe_step_N.json \
+  #     trainer.resume_mode=resume_path \
+  #     trainer.resume_from_path=<this-arm>/global_step_N \
+  #     <all other training overrides...>
+  cross_pair_probe:
+    partner_ckpt_dir: ""
+    every_n_val_steps: 1
+    run_only: false
+    out_path: ""
+
+  # Per-agent resource and model overrides.
+  # Length must equal num_agents. Each entry can override actor.model.path,
+  # n_gpus_per_node, nnodes, and any actor/critic sub-config (including
+  # actor.entropy_coeff for the bounded-rationality ablation).
+  agents:
+    - actor:
+        model:
+          path: ???
+      n_gpus_per_node: 1
+    - actor:
+        model:
+          path: ???
+      n_gpus_per_node: 1
